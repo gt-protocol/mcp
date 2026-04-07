@@ -8,17 +8,11 @@ Manage bots, run backtests, check balances, and automate trading strategies — 
 
 [Model Context Protocol](https://modelcontextprotocol.io) is an open standard that lets AI agents call external tools. This server exposes the GT Protocol REST API as a set of tools that any MCP-compatible AI can use.
 
+---
+
 ## Quickstart
 
-### 1. Get your tokens
-
-```bash
-node get-token.js your@email.com yourpassword
-```
-
-This prints your `GT_TOKEN` and `GT_REFRESH_TOKEN`. The access token expires in ~1 hour; the refresh token lasts 7 days. The server refreshes automatically — you only need to re-run this when the refresh token expires.
-
-### 2. Add to Claude Code
+### 1. Add to Claude Code
 
 Add this to your `.mcp.json` (or `~/.claude.json` for global access):
 
@@ -27,19 +21,29 @@ Add this to your `.mcp.json` (or `~/.claude.json` for global access):
   "mcpServers": {
     "gt-protocol": {
       "command": "node",
-      "args": ["/path/to/gt-protocol/mcp-server/index.js"],
-      "env": {
-        "GT_TOKEN": "your_access_token",
-        "GT_REFRESH_TOKEN": "your_refresh_token"
-      }
+      "args": ["/path/to/gt-protocol/mcp-server/index.js"]
     }
   }
 }
 ```
 
+No env variables needed.
+
+### 2. Authenticate
+
+On first use, call the `authenticate` tool:
+
+```
+Authenticate with GT Protocol using email@example.com and my password
+```
+
+The server calls `/auth/sign_in`, saves tokens to `~/.gt-mcp-auth.json`, and confirms with your account email. Done.
+
+**You will never need to do this again** — tokens are auto-refreshed on every use and persist across restarts.
+
 ### 3. Add to Cursor
 
-Open **Settings → MCP** and add the same configuration block.
+Open **Settings → MCP** and add the same configuration block (without `env`).
 
 ### 4. Start trading with AI
 
@@ -54,6 +58,12 @@ Run a backtest for ETH/USDT with MACD strategy, 3% TP, 1% SL
 ---
 
 ## Available Tools
+
+### Auth
+
+| Tool | Description |
+|------|-------------|
+| `authenticate` | Sign in with email + password. Call once — tokens persist to disk and auto-refresh. |
 
 ### Bots
 
@@ -71,10 +81,11 @@ Run a backtest for ETH/USDT with MACD strategy, 3% TP, 1% SL
 
 | Tool | Description |
 |------|-------------|
+| `start_deal` | Manually open a deal on an active bot immediately (skip signal wait) |
+| `close_deal` | Market-close the active deal on a bot |
 | `list_deals` | List all deals (open + closed), filter by bot |
 | `get_active_deals` | Get all currently active deals |
 | `get_deal_history` | Closed deals with profit stats |
-| `close_deal` | Market-close the active deal on a bot |
 
 ### Account
 
@@ -83,6 +94,7 @@ Run a backtest for ETH/USDT with MACD strategy, 3% TP, 1% SL
 | `get_exchanges` | List connected exchange accounts |
 | `get_balance` | Get balance for an exchange account |
 | `get_profile` | Current user profile and stats |
+
 
 ---
 
@@ -108,8 +120,8 @@ Compare with MACD strategy same params.
 
 ```
 Stop all my losing bots (those with negative total profit).
-Clone my best-performing bot as a paper trade to test new settings.
 Update bot 12345 — increase take profit to 3% and add a 5% stop loss.
+Start a deal on bot 12345 right now without waiting for a signal.
 ```
 
 ---
@@ -125,13 +137,26 @@ Paper bots run on real market data but don't place real orders.
 
 ---
 
-## Authentication Notes
+## Authentication Details
 
-- Tokens are JWT-based, issued per user session
-- Access token: ~1 hour TTL
-- Refresh token: ~7 days TTL
-- The server auto-refreshes on 401 responses — no manual intervention needed
-- Run `get-token.js` again when your refresh token expires (~weekly)
+Tokens are stored in `~/.gt-mcp-auth.json` after the first `authenticate` call.
+
+| Token | TTL | Behavior |
+|-------|-----|----------|
+| Access token | ~1 hour | Auto-refreshed on 401 responses |
+| Refresh token | ~7 days | Used to get new access tokens silently |
+
+When the refresh token expires (~7 days of total inactivity), call `authenticate` again. Normal usage keeps tokens alive indefinitely through automatic refresh.
+
+You can still set `GT_TOKEN` / `GT_REFRESH_TOKEN` in `.mcp.json` env to override the saved tokens — useful for CI/automation.
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GT_TOKEN` | — | Override access token (optional) |
+| `GT_REFRESH_TOKEN` | — | Override refresh token (optional) |
+| `GT_API_URL` | `https://api.gt-protocol.io` | Override API base URL |
 
 ---
 

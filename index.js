@@ -3,29 +3,73 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
-const BASE_URL = "https://api.gt-protocol.io/api/v1";
-const AUTH_BASE = "https://api.gt-protocol.io";
+const API_HOST = process.env.GT_API_URL || "https://api.gt-protocol.io";
+const BASE_URL = `${API_HOST}/api/v1`;
+const AUTH_BASE = API_HOST;
+const AUTH_FILE = path.join(os.homedir(), ".gt-mcp-auth.json");
 
-let currentToken = process.env.GT_TOKEN;
-const REFRESH_TOKEN = process.env.GT_REFRESH_TOKEN;
+// ─── Token storage ───────────────────────────────────────────────────────────
+// Priority: env vars → ~/.gt-mcp-auth.json → unauthenticated
+function loadSavedTokens() {
+  try {
+    const raw = fs.readFileSync(AUTH_FILE, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
 
+const saved = loadSavedTokens();
+let currentToken = process.env.GT_TOKEN || saved.access_token || null;
+let currentRefreshToken = process.env.GT_REFRESH_TOKEN || saved.refresh_token || null;
+
+function persistTokens(access, refresh) {
+  currentToken = access;
+  if (refresh) currentRefreshToken = refresh;
+  try {
+    fs.writeFileSync(
+      AUTH_FILE,
+      JSON.stringify({ access_token: access, refresh_token: refresh ?? currentRefreshToken }, null, 2)
+    );
+  } catch {
+    // non-fatal — in-memory tokens still work for this session
+  }
+}
+
+// ─── HTTP helpers ─────────────────────────────────────────────────────────────
 function authHeaders() {
-  if (!currentToken) throw new Error("GT_TOKEN env variable is not set");
+  if (!currentToken) {
+    throw new Error(
+      "Not authenticated. Call the 'authenticate' tool with your GT Protocol email and password first."
+    );
+  }
   return { Authorization: `Bearer ${currentToken}`, "Content-Type": "application/json" };
 }
 
 async function tryRefresh() {
-  if (!REFRESH_TOKEN) throw new Error("Session expired and GT_REFRESH_TOKEN is not set");
+  if (!currentRefreshToken) {
+    throw new Error(
+      "Session expired and no refresh token available. Call 'authenticate' with your email and password."
+    );
+  }
   const res = await fetch(`${AUTH_BASE}/auth/refresh`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${REFRESH_TOKEN}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${currentRefreshToken}`, "Content-Type": "application/json" },
   });
-  if (!res.ok) throw new Error("Session expired — please re-authenticate and update GT_TOKEN");
+  if (!res.ok) {
+    throw new Error(
+      "Session expired. Call the 'authenticate' tool with your GT Protocol email and password."
+    );
+  }
   const body = await res.json();
   const data = body.data ?? body;
-  currentToken = data.access_token ?? data.token;
-  if (!currentToken) throw new Error("Refresh succeeded but no access_token in response");
+  const newAccess = data.access_token ?? data.token;
+  if (!newAccess) throw new Error("Token refresh succeeded but response contains no access_token.");
+  persistTokens(newAccess, data.refresh_token ?? null);
 }
 
 async function request(method, path, body) {
@@ -41,14 +85,55 @@ async function request(method, path, body) {
   return res.json();
 }
 
-const apiGet   = (path)        => request("GET",   path);
-const apiPost  = (path, body)  => request("POST",  path, body ?? {});
-const apiPatch = (path, body)  => request("PATCH", path, body ?? {});
-const apiPut   = (path, body)  => request("PUT",   path, body ?? {});
+const apiGet   = (path)       => request("GET",   path);
+const apiPost  = (path, body) => request("POST",  path, body ?? {});
+const apiPatch = (path, body) => request("PATCH", path, body ?? {});
 
+// ─── MCP Server ───────────────────────────────────────────────────────────────
 const server = new McpServer({ name: "gt-protocol", version: "2.0.0" });
 
-// Create bot
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+server.tool(
+  "authenticate",
+  "Authenticate with your GT Protocol account. Call this once to connect the MCP server. " +
+    "Tokens are saved to ~/.gt-mcp-auth.json and auto-refreshed — no need to call this again unless your session is fully expired.",
+  {
+    email: z.string().describe("GT Protocol account email"),
+    password: z.string().describe("GT Protocol account password"),
+  },
+  async ({ email, password }) => {
+    const res = await fetch(`${AUTH_BASE}/auth/sign_in`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      throw new Error(`Authentication failed: ${body.message || JSON.stringify(body)}`);
+    }
+    const data = body.data ?? body;
+    const access = data.access_token ?? data.token;
+    const refresh = data.refresh_token;
+    if (!access) throw new Error("No access_token in response. Check your credentials.");
+    persistTokens(access, refresh);
+    // Verify by fetching profile
+    const me = await apiGet("/user/me");
+    const meData = me.data ?? me;
+    const userEmail = meData.email ?? email;
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Authenticated as ${userEmail}. All GT Protocol tools are now available.\nTokens saved to ${AUTH_FILE} — auto-refreshed on next use.`,
+        },
+      ],
+    };
+  }
+);
+
+// ── Bots ──────────────────────────────────────────────────────────────────────
+
 server.tool(
   "create_bot",
   "Create a new trading bot/strategy.",
@@ -85,29 +170,6 @@ server.tool(
   }
 );
 
-// Close deal
-server.tool(
-  "close_deal",
-  "Close the active deal on a bot (market close). Works for both SPOT and FUTURES bots.",
-  { bot_id: z.number().describe("Bot ID whose active deal should be closed") },
-  async ({ bot_id }) => {
-    const data = await apiPost(`/bot/deal/${bot_id}/close`);
-    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-  }
-);
-
-// Paper clone
-server.tool(
-  "paper_clone",
-  "Create a paper trading (demo) copy of an existing live bot.",
-  { bot_id: z.number().describe("Bot ID to clone as paper/demo bot") },
-  async ({ bot_id }) => {
-    const data = await apiPost(`/bot/${bot_id}/paper_clone`);
-    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-  }
-);
-
-// Update bot
 server.tool(
   "update_bot",
   "Update settings of an existing bot/strategy.",
@@ -133,7 +195,6 @@ server.tool(
   }
 );
 
-// List bots
 server.tool(
   "list_bots",
   "List all user's strategies/bots.",
@@ -148,7 +209,6 @@ server.tool(
   }
 );
 
-// Get bot details
 server.tool(
   "get_bot",
   "Get details of a specific strategy/bot by ID.",
@@ -159,10 +219,9 @@ server.tool(
   }
 );
 
-// Start bot
 server.tool(
   "start_bot",
-  "Activate (start) a strategy/bot.",
+  "Activate (start) a strategy/bot. The bot will start looking for entry signals and opening deals.",
   { bot_id: z.number().describe("Bot ID") },
   async ({ bot_id }) => {
     const data = await apiPost(`/bot/${bot_id}/start`);
@@ -170,10 +229,9 @@ server.tool(
   }
 );
 
-// Stop bot
 server.tool(
   "stop_bot",
-  "Deactivate (stop) a strategy/bot.",
+  "Deactivate (stop) a strategy/bot. The bot stops opening new deals but keeps existing ones open.",
   { bot_id: z.number().describe("Bot ID") },
   async ({ bot_id }) => {
     const data = await apiPost(`/bot/${bot_id}/stop`);
@@ -181,10 +239,43 @@ server.tool(
   }
 );
 
-// List deals
+server.tool(
+  "paper_clone",
+  "Create a paper trading (demo) copy of an existing live bot. " +
+    "Note: requires the bot to be active on a connected real exchange. Returns 404 if conditions are not met.",
+  { bot_id: z.number().describe("Bot ID to clone as paper/demo bot") },
+  async ({ bot_id }) => {
+    const data = await apiPost(`/bot/${bot_id}/paper_clone`);
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
+// ── Deals ─────────────────────────────────────────────────────────────────────
+
+server.tool(
+  "start_deal",
+  "Manually start a deal on an active bot immediately, without waiting for a signal. " +
+    "The bot must be in active (started) state.",
+  { bot_id: z.number().describe("Bot ID") },
+  async ({ bot_id }) => {
+    const data = await apiPost(`/bot/deal/${bot_id}/start`);
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
+server.tool(
+  "close_deal",
+  "Close the active deal on a bot at market price. Works for both SPOT and FUTURES bots.",
+  { bot_id: z.number().describe("Bot ID whose active deal should be closed") },
+  async ({ bot_id }) => {
+    const data = await apiPost(`/bot/deal/${bot_id}/close`);
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
 server.tool(
   "list_deals",
-  "List all deals with optional filters.",
+  "List all deals (open and closed) with optional filters.",
   {
     page: z.number().optional().default(1),
     limit: z.number().optional().default(20),
@@ -198,10 +289,9 @@ server.tool(
   }
 );
 
-// Active deals
 server.tool(
   "get_active_deals",
-  "Get all currently active deals.",
+  "Get all currently active (open) deals.",
   {},
   async () => {
     const data = await apiGet("/user/deals/active");
@@ -209,10 +299,9 @@ server.tool(
   }
 );
 
-// Deal history
 server.tool(
   "get_deal_history",
-  "Get deal history with total profit.",
+  "Get closed deal history with profit/loss.",
   {
     page: z.number().optional().default(1),
     limit: z.number().optional().default(20),
@@ -224,18 +313,8 @@ server.tool(
   }
 );
 
-// Get balance
-server.tool(
-  "get_balance",
-  "Get exchange account balance.",
-  { user_exchange_id: z.number().describe("User exchange account ID") },
-  async ({ user_exchange_id }) => {
-    const data = await apiGet(`/exchange/balance/${user_exchange_id}`);
-    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-  }
-);
+// ── Exchange ──────────────────────────────────────────────────────────────────
 
-// Get exchanges
 server.tool(
   "get_exchanges",
   "List connected exchange accounts.",
@@ -246,19 +325,29 @@ server.tool(
   }
 );
 
-// Get profile
+server.tool(
+  "get_balance",
+  "Get balance for a specific exchange account.",
+  { user_exchange_id: z.number().describe("User exchange account ID (from get_exchanges)") },
+  async ({ user_exchange_id }) => {
+    const data = await apiGet(`/exchange/balance/${user_exchange_id}`);
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
+// ── User ──────────────────────────────────────────────────────────────────────
+
 server.tool(
   "get_profile",
-  "Get current user profile and stats.",
+  "Get current user profile, stats, and membership info.",
   {},
   async () => {
-    const [me, info] = await Promise.all([
-      apiGet("/user/me"),
-      apiGet("/user/profile_info"),
-    ]);
+    const [me, info] = await Promise.all([apiGet("/user/me"), apiGet("/user/profile_info")]);
     return { content: [{ type: "text", text: JSON.stringify({ me, info }, null, 2) }] };
   }
 );
 
+
+// ─────────────────────────────────────────────────────────────────────────────
 const transport = new StdioServerTransport();
 await server.connect(transport);

@@ -1,0 +1,38 @@
+{
+  "name": "@gt-protocol/mcp",
+  "version": "1.0.0",
+  "description": "GT Protocol MCP Server — connect Claude, Cursor, or any AI agent to your GT Protocol trading account",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "gt-mcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "get-token": "node get-token.js"
+  },
+  "keywords": [
+    "gt-protocol",
+    "mcp",
+    "model-context-protocol",
+    "trading",
+    "crypto",
+    "ai",
+    "claude",
+    "cursor"
+  ],
+  "author": "GT Protocol",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gt-protocol/mcp"
+  },
+  "homepage": "https://gt-protocol.io",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^3.22.0"
+  }
+}

@@ -41,16 +41,26 @@ function persistTokens(access, refresh) {
 }
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
-function authHeaders() {
+
+function jwtExp(token) {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+    return payload.exp ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function ensureFreshToken() {
   if (!currentToken) {
     throw new Error(
       "Not authenticated. Call the 'authenticate' tool with your GT Protocol email and password first."
     );
   }
-  return { Authorization: `Bearer ${currentToken}`, "Content-Type": "application/json" };
-}
+  const now = Math.floor(Date.now() / 1000);
+  if (jwtExp(currentToken) > now + 300) return; // token valid for 5+ min, use as-is
 
-async function tryRefresh() {
+  // Access token expired or expiring soon — refresh proactively
   if (!currentRefreshToken) {
     throw new Error(
       "Session expired and no refresh token available. Call 'authenticate' with your email and password."
@@ -72,15 +82,15 @@ async function tryRefresh() {
   persistTokens(newAccess, data.refresh_token ?? null);
 }
 
+function authHeaders() {
+  return { Authorization: `Bearer ${currentToken}`, "Content-Type": "application/json" };
+}
+
 async function request(method, path, body) {
+  await ensureFreshToken(); // proactive check — never send an expired token
   const opts = { method, headers: authHeaders() };
   if (body !== undefined) opts.body = JSON.stringify(body);
-  let res = await fetch(`${BASE_URL}${path}`, opts);
-  if (res.status === 401) {
-    await tryRefresh();
-    opts.headers = authHeaders();
-    res = await fetch(`${BASE_URL}${path}`, opts);
-  }
+  const res = await fetch(`${BASE_URL}${path}`, opts);
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
   return res.json();
 }

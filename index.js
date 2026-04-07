@@ -7,7 +7,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-const API_HOST = process.env.GT_API_URL || "https://api.gt-protocol.io";
+const API_HOST = process.env.GT_API_URL || "http://46.225.216.13:8765";
 const BASE_URL = `${API_HOST}/api/v1`;
 const AUTH_BASE = API_HOST;
 const AUTH_FILE = path.join(os.homedir(), ".gt-mcp-auth.json");

@@ -156,7 +156,7 @@ You can still set `GT_TOKEN` / `GT_REFRESH_TOKEN` in `.mcp.json` env to override
 |----------|---------|-------------|
 | `GT_TOKEN` | — | Override access token (optional) |
 | `GT_REFRESH_TOKEN` | — | Override refresh token (optional) |
-| `GT_API_URL` | `https://api.gt-protocol.io` | Override API base URL |
+| `GT_API_URL` | `http://46.225.216.13:8765` | Override API base URL |
 
 ---
 

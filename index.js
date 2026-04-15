@@ -61,18 +61,17 @@ function jwtExp(token) {
 }
 
 async function ensureFreshToken() {
-  if (!currentToken) {
-    throw new Error(
-      "Not authenticated. Call the 'authenticate' tool with your GT Protocol email and password first."
-    );
+  if (currentToken) {
+    const now = Math.floor(Date.now() / 1000);
+    if (jwtExp(currentToken) > now + 300) return; // token valid for 5+ min, use as-is
   }
-  const now = Math.floor(Date.now() / 1000);
-  if (jwtExp(currentToken) > now + 300) return; // token valid for 5+ min, use as-is
 
-  // Access token expired or expiring soon — refresh proactively
+  // Access token missing or expiring — attempt refresh
   if (!currentRefreshToken) {
     throw new Error(
-      "Session expired and no refresh token available. Call 'authenticate' with your email and password."
+      currentToken
+        ? "Session expired and no refresh token available. Call 'authenticate' with your email and password."
+        : "Not authenticated. Call the 'authenticate' tool with your GT Protocol email and password first."
     );
   }
   const res = await fetch(`${AUTH_BASE}/auth/refresh`, {
@@ -442,7 +441,7 @@ server.tool(
     const data = await res.json();
     const m = data.metrics ?? {};
     const summary = [
-      `ETH/USDT MACD backtest — ${data.backtest_start_date} → ${data.backtest_end_date}`,
+      `${symbol.toUpperCase()} ${strategy.toUpperCase()} backtest — ${data.backtest_start_date} → ${data.backtest_end_date}`,
       `Trades: ${m.total_trades} (✓ ${m.winning_trades} / ✗ ${m.losing_trades})`,
       `Win rate: ${m.win_rate?.toFixed(2)}%`,
       `Net PnL: ${m.net_pnl_percent?.toFixed(2)}% ($${m.net_pnl?.toFixed(2)})`,

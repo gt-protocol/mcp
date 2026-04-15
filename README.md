@@ -37,15 +37,20 @@ On first use, call the `authenticate` tool:
 Authenticate with GT Protocol using email@example.com and my password
 ```
 
-The server calls `/auth/sign_in`, saves tokens to `~/.gt-mcp-auth.json`, and confirms with your account email. Done.
+The server calls `/auth/sign_in`, saves tokens to `~/.gt-mcp-auth.json`, and confirms with your account email.
 
-**You will never need to do this again** — tokens are auto-refreshed on every use and persist across restarts.
+Tokens auto-refresh as long as you use the server at least once every 7 days. After 7 days of total inactivity, call `authenticate` again.
 
-### 3. Add to Cursor
+> **Signed up with Google?** You don't have a password. Open the GT Protocol web app, open DevTools → Application → Local Storage, copy `access_token` and `refresh_token`, and add them to `.mcp.json` as env vars:
+> ```json
+> "env": {
+>   "GT_TOKEN": "<access_token>",
+>   "GT_REFRESH_TOKEN": "<refresh_token>"
+> }
+> ```
+> The server will pick them up on startup and auto-refresh from there.
 
-Open **Settings → MCP** and add the same configuration block (without `env`).
-
-### 4. Start trading with AI
+### 3. Start trading with AI
 
 ```
 List my active bots
@@ -101,7 +106,7 @@ Run a backtest for ETH/USDT with MACD strategy, 3% TP, 1% SL
 |------|-------------|
 | `run_backtest` | Run a backtest on historical data. Strategies: `macd`, `bollinger`, `kdj`. Returns win rate, PnL, drawdown, full trade list. |
 
-> **Note:** Backtest requests are routed through a proxy on the Hetzner server (`46.225.216.13:8081`). Requires `GT_PROXY_URL` and `GT_PROXY_API_KEY` env vars in `.mcp.json`.
+> **Note:** Backtest requests are routed through a proxy. The proxy key is fetched automatically after `authenticate` — no extra env vars needed.
 
 ---
 
@@ -165,7 +170,7 @@ You can still set `GT_TOKEN` / `GT_REFRESH_TOKEN` in `.mcp.json` env to override
 | `GT_REFRESH_TOKEN` | — | Override refresh token (optional) |
 | `GT_API_URL` | `http://46.225.216.13:8765` | Override API base URL |
 | `GT_PROXY_URL` | `http://46.225.216.13:8081` | Backtest proxy URL |
-| `GT_PROXY_API_KEY` | — | API key for backtest proxy (required for `run_backtest`) |
+| `GT_PROXY_API_KEY` | — | Override backtest proxy key (fetched automatically after `authenticate`) |
 
 ---
 
@@ -178,7 +183,7 @@ You can still set `GT_TOKEN` / `GT_REFRESH_TOKEN` in `.mcp.json` env to override
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 18+ (dependencies are bundled — no `npm install` needed)
 - A GT Protocol account — [sign up at gt-protocol.io](https://gt-protocol.io)
 - A connected exchange account (Binance or Hyperliquid)
 

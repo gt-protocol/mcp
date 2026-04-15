@@ -95,6 +95,13 @@ Run a backtest for ETH/USDT with MACD strategy, 3% TP, 1% SL
 | `get_balance` | Get balance for an exchange account |
 | `get_profile` | Current user profile and stats |
 
+### Backtest
+
+| Tool | Description |
+|------|-------------|
+| `run_backtest` | Run a backtest on historical data. Strategies: `macd`, `bollinger`, `kdj`. Returns win rate, PnL, drawdown, full trade list. |
+
+> **Note:** Backtest requests are routed through a proxy on the Hetzner server (`46.225.216.13:8081`). Requires `GT_PROXY_URL` and `GT_PROXY_API_KEY` env vars in `.mcp.json`.
 
 ---
 
@@ -157,6 +164,8 @@ You can still set `GT_TOKEN` / `GT_REFRESH_TOKEN` in `.mcp.json` env to override
 | `GT_TOKEN` | — | Override access token (optional) |
 | `GT_REFRESH_TOKEN` | — | Override refresh token (optional) |
 | `GT_API_URL` | `http://46.225.216.13:8765` | Override API base URL |
+| `GT_PROXY_URL` | `http://46.225.216.13:8081` | Backtest proxy URL |
+| `GT_PROXY_API_KEY` | — | API key for backtest proxy (required for `run_backtest`) |
 
 ---
 

@@ -12,6 +12,9 @@ const BASE_URL = `${API_HOST}/api/v1`;
 const AUTH_BASE = API_HOST;
 const AUTH_FILE = path.join(os.homedir(), ".gt-mcp-auth.json");
 
+const PROXY_URL = process.env.GT_PROXY_URL || "http://46.225.216.13:8081";
+const PROXY_API_KEY = process.env.GT_PROXY_API_KEY || "";
+
 // ─── Token storage ───────────────────────────────────────────────────────────
 // Priority: env vars → ~/.gt-mcp-auth.json → unauthenticated
 function loadSavedTokens() {
@@ -357,6 +360,78 @@ server.tool(
   }
 );
 
+
+// ── Backtest ──────────────────────────────────────────────────────────────────
+
+server.tool(
+  "run_backtest",
+  "Run a backtest on historical data for a trading strategy via the GT backtest service. " +
+    "Returns metrics: win_rate, net_pnl_percent, max_drawdown_percent, trade counts. " +
+    "Defaults: last 30 days, Binance, 3× leverage, $1000 capital.",
+  {
+    symbol:          z.string().describe("Trading pair without slash, e.g. 'ETHUSDT'"),
+    strategy:        z.enum(["macd", "bollinger", "kdj"]).describe("Strategy type"),
+    timeframe:       z.string().describe("Candle timeframe, e.g. '1h', '15m', '4h'"),
+    trade_direction: z.enum(["long", "short"]).describe("Trade direction"),
+    tp_percent:      z.number().describe("Take profit %"),
+    sl_percent:      z.number().describe("Stop loss %"),
+    exchange:        z.string().optional().default("binance").describe("Exchange: binance or hyperliquid"),
+    leverage:        z.number().optional().default(3).describe("Futures leverage"),
+    initial_capital: z.number().optional().default(1000).describe("Starting capital in USDT"),
+    start_date:      z.string().optional().describe("Start date YYYY-MM-DD (default: 30 days ago)"),
+    end_date:        z.string().optional().describe("End date YYYY-MM-DD (default: today)"),
+    trend_changer:   z.boolean().optional().default(false).describe("Enable trend changer filter"),
+  },
+  async ({ symbol, strategy, timeframe, trade_direction, tp_percent, sl_percent,
+           exchange, leverage, initial_capital, start_date, end_date, trend_changer }) => {
+    if (!PROXY_API_KEY) throw new Error("GT_PROXY_API_KEY env var not set.");
+
+    const indicatorParams = {
+      macd:     { fast_period: 12, slow_period: 26, signal_period: 9 },
+      bollinger: { period: 20, std_dev: 2 },
+      kdj:      { k_period: 9, d_period: 3, slowing: 3 },
+    }[strategy];
+
+    const payload = {
+      symbol, strategy, timeframe, exchange, trade_direction,
+      tp_percent, sl_percent, leverage,
+      initial_capital,
+      initial_order_size: 50,
+      initial_order_size_mode: "percent",
+      trailing_tp: false,
+      stop_loss_enabled: true,
+      num_safety_orders: 0,
+      dca_enabled: false,
+      trend_changer: trend_changer ?? false,
+      indicator_params: indicatorParams,
+      fees_bps: 0,
+      slippage_bps: 0,
+      ...(start_date && { start_date }),
+      ...(end_date   && { end_date }),
+    };
+
+    const res = await fetch(`${PROXY_URL}/backtest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Api-Key": PROXY_API_KEY },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Backtest proxy error ${res.status}: ${text}`);
+    }
+    const data = await res.json();
+    const m = data.metrics ?? {};
+    const summary = [
+      `ETH/USDT MACD backtest — ${data.backtest_start_date} → ${data.backtest_end_date}`,
+      `Trades: ${m.total_trades} (✓ ${m.winning_trades} / ✗ ${m.losing_trades})`,
+      `Win rate: ${m.win_rate?.toFixed(2)}%`,
+      `Net PnL: ${m.net_pnl_percent?.toFixed(2)}% ($${m.net_pnl?.toFixed(2)})`,
+      `Max drawdown: ${m.max_drawdown_percent?.toFixed(2)}%`,
+      `Liquidations: ${m.liquidation_count ?? 0}`,
+    ].join("\n");
+    return { content: [{ type: "text", text: summary + "\n\n" + JSON.stringify(data, null, 2) }] };
+  }
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 const transport = new StdioServerTransport();

@@ -13,7 +13,6 @@ const AUTH_BASE = API_HOST;
 const AUTH_FILE = path.join(os.homedir(), ".gt-mcp-auth.json");
 
 const PROXY_URL = process.env.GT_PROXY_URL || "http://46.225.216.13:8081";
-const PROXY_API_KEY = process.env.GT_PROXY_API_KEY || "";
 
 // ─── Token storage ───────────────────────────────────────────────────────────
 // Priority: env vars → ~/.gt-mcp-auth.json → unauthenticated
@@ -29,14 +28,21 @@ function loadSavedTokens() {
 const saved = loadSavedTokens();
 let currentToken = process.env.GT_TOKEN || saved.access_token || null;
 let currentRefreshToken = process.env.GT_REFRESH_TOKEN || saved.refresh_token || null;
+// Proxy key: env override → saved from previous authenticate → null (fetched on next authenticate)
+let currentProxyKey = process.env.GT_PROXY_API_KEY || saved.proxy_key || null;
 
-function persistTokens(access, refresh) {
+function persistTokens(access, refresh, proxyKey) {
   currentToken = access;
   if (refresh) currentRefreshToken = refresh;
+  if (proxyKey) currentProxyKey = proxyKey;
   try {
     fs.writeFileSync(
       AUTH_FILE,
-      JSON.stringify({ access_token: access, refresh_token: refresh ?? currentRefreshToken }, null, 2)
+      JSON.stringify({
+        access_token: access,
+        refresh_token: refresh ?? currentRefreshToken,
+        proxy_key: proxyKey ?? currentProxyKey,
+      }, null, 2)
     );
   } catch {
     // non-fatal — in-memory tokens still work for this session
@@ -134,11 +140,25 @@ server.tool(
     const me = await apiGet("/user/me");
     const meData = me.data ?? me;
     const userEmail = meData.email ?? email;
+    // Fetch proxy key — user must be a valid GT Protocol member to receive it
+    let backtestNote = "";
+    try {
+      const proxyRes = await fetch(`${PROXY_URL}/proxy-key`, {
+        headers: { Authorization: `Bearer ${access}` },
+      });
+      if (proxyRes.ok) {
+        const { proxy_key } = await proxyRes.json();
+        persistTokens(access, refresh, proxy_key);
+        backtestNote = "\nBacktest tool unlocked — proxy key saved.";
+      }
+    } catch {
+      // non-fatal — backtest will show a clear error if key is missing
+    }
     return {
       content: [
         {
           type: "text",
-          text: `Authenticated as ${userEmail}. All GT Protocol tools are now available.\nTokens saved to ${AUTH_FILE} — auto-refreshed on next use.`,
+          text: `Authenticated as ${userEmail}. All GT Protocol tools are now available.\nTokens saved to ${AUTH_FILE} — auto-refreshed on next use.${backtestNote}`,
         },
       ],
     };
@@ -384,7 +404,7 @@ server.tool(
   },
   async ({ symbol, strategy, timeframe, trade_direction, tp_percent, sl_percent,
            exchange, leverage, initial_capital, start_date, end_date, trend_changer }) => {
-    if (!PROXY_API_KEY) throw new Error("GT_PROXY_API_KEY env var not set.");
+    if (!currentProxyKey) throw new Error("Backtest proxy key not available. Call 'authenticate' first to unlock the backtest tool.");
 
     const indicatorParams = {
       macd:     { fast_period: 12, slow_period: 26, signal_period: 9 },
@@ -412,7 +432,7 @@ server.tool(
 
     const res = await fetch(`${PROXY_URL}/backtest`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Api-Key": PROXY_API_KEY },
+      headers: { "Content-Type": "application/json", "X-Api-Key": currentProxyKey },
       body: JSON.stringify(payload),
     });
     if (!res.ok) {

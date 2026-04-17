@@ -272,6 +272,24 @@ server.tool(
 );
 
 server.tool(
+  "delete_bot",
+  "Archive (soft-delete) a bot/strategy. The bot status is set to ARCHIVED and it disappears from the list. " +
+    "Any active deal is cancelled. This cannot be undone via API.",
+  { bot_id: z.number().describe("Bot ID to delete/archive") },
+  async ({ bot_id }) => {
+    await ensureFreshToken();
+    const res = await fetch(`${BASE_URL}/bot`, {
+      method: "DELETE",
+      headers: authHeaders(),
+      body: JSON.stringify({ bot_id }),
+    });
+    if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
+server.tool(
   "paper_clone",
   "Create a paper trading (demo) copy of an existing live bot. " +
     "Note: requires the bot to be active on a connected real exchange. Returns 404 if conditions are not met.",

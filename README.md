@@ -80,6 +80,7 @@ Run a backtest for ETH/USDT with MACD strategy, 3% TP, 1% SL
 | `update_bot` | Update bot settings |
 | `start_bot` | Activate a bot |
 | `stop_bot` | Deactivate a bot |
+| `delete_bot` | Archive (soft-delete) a bot. Requires no active deal — close it first with `close_deal` if open. |
 | `paper_clone` | Create a paper trading copy of a live bot |
 
 ### Deals

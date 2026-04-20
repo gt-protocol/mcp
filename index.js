@@ -397,6 +397,19 @@ server.tool(
   }
 );
 
+server.tool(
+  "list_portfolios",
+  "List user's Portfolio strategies (multi-bot baskets). Each portfolio occupies its exchange — " +
+    "a portfolio on Binance blocks any new standalone SPOT bot on that same Binance account (per " +
+    "cb_trade_bot_management rule). Portfolios are NOT returned by list_bots — always call both " +
+    "tools together when auditing exchange usage or before recommending a new bot.",
+  {},
+  async () => {
+    const data = await apiGet("/portfolio/all");
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
 
 // ── Backtest ──────────────────────────────────────────────────────────────────
 

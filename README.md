@@ -74,7 +74,8 @@ Run a backtest for ETH/USDT with MACD strategy, 3% TP, 1% SL
 
 | Tool | Description |
 |------|-------------|
-| `list_bots` | List all your strategies |
+| `list_bots` | List standalone strategies/bots. **Does NOT include Portfolio strategies** — call `list_portfolios` for those. |
+| `list_portfolios` | List Portfolio strategies (multi-bot baskets). Each portfolio occupies its exchange: a portfolio on Binance blocks any new standalone SPOT bot on that account. Always call together with `list_bots` when auditing exchange usage. |
 | `get_bot` | Get details of a specific bot |
 | `create_bot` | Create a new trading bot |
 | `update_bot` | Update bot settings |
